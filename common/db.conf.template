@@ -1,0 +1,63 @@
+#encoding=gbk
+import traceback
+import sys
+import thread
+import os
+import re
+import time
+import struct
+import logging
+
+class GlobalConfigration(object):
+    '''
+    '''
+    ALARM_LEVEL_SERVER_CONDB_FAIL = 2
+    #global configuration
+    DB_HOST = '10.151.142.41'
+    DB_USER = 'tvideo'
+    DB_PASSWORD = 'Tv1deo'
+    DB_DATABASE = 'sosovideo'
+    DB_CHARSET = 'gbk'
+    DB_HOST_BAK = '10.151.142.41'
+    DB_USER_BAK = 'tvideo'
+    DB_PASSWORD_BAK = 'Tv1deo'
+    DB_DATABASE_BAK = 'sosovideo'
+    DB_CHARSET_BAK = 'gbk'
+
+    MSG_ALARM_LEVEL = 4
+    SYSTEMPATH = ''
+    ALARM_SAME_MSG_FREQENT = 30*60
+
+def create_logger(logfilename , logName="") :
+    """创建日志对象"""
+    import logging,logging.handlers
+    logger = logging.getLogger(logName)
+    infohdlr = logging.handlers.RotatingFileHandler(logfilename, maxBytes=100*1000*1000, backupCount=10)
+    infohdlr.setLevel(logging.INFO)
+    #detail
+    debughdlr = logging.handlers.RotatingFileHandler(logfilename+'4debug', maxBytes=500*1000*1000, backupCount=10)
+    debughdlr.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s %(levelname)6s  %(threadName)-12s %(filename)-10s  %(lineno)4d:%(funcName)16s|| %(message)s')
+    
+    infohdlr.setFormatter(formatter)
+    debughdlr.setFormatter(formatter)
+
+    logger.addHandler(infohdlr)
+    logger.addHandler(debughdlr)
+    
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+
+g_logger = create_logger('../log/db.log')
+def alarm(alarmMsg, dead=False, alarm_level=0):
+    global g_logger
+    g_logger.critical('[ALARM]'+str(alarmMsg))
+    print '[ALARM]'+str(alarmMsg)
+    g_logger.critical(traceback.format_exc())
+    if dead and False:
+        thread.interrupt_main()
+        os.exit(1)
+
+
+g_conf = GlobalConfigration()

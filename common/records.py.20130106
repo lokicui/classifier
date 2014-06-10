@@ -1,0 +1,463 @@
+#encoding=gbk
+import sys
+import time
+sys.path.append('../src')
+from preprocess_v2 import parse_title, normalize_record
+
+class IRecord(object):
+    '''
+    '''
+    def __hash__(self):
+        return self.id
+
+class AlbumCompareRecord(IRecord):
+    '''
+    聚合用的record
+    '''
+    DB_TABLE = ''
+    PRIMARY_KEY = ''
+    KEYS = []
+    def __init__(self):
+        self.raw_record = None
+        self.id = 0
+        self.title = ''
+        self.alias = ''
+        #预处理分析出来的
+        ############
+        self.key_title = ''
+        self.sub_title = ''
+        self.season_num = ''
+        self.album_language = ''
+        self.version = ''
+        ############
+        self.category = ''
+        self.album_type = ''
+        self.directors = ''
+        self.actors = ''
+        self.intro = ''
+        self.site = ''
+        self.total_episode_num = 0
+        self.newest_episode_num = 0
+        self.region = ''
+        self.pub_year = 0
+        self.pub_time = 0
+        self.siteid_pair_list = ''
+
+    def to_repository_record(self):
+        rawrecord = self.raw_record
+        record = AlbumRepositoryRecord()
+        record.id = self.id
+        record.title = self.title
+        record.alias = self.alias
+        record.category = self.category
+        record.album_type = self.album_type
+        record.directors = self.directors
+        record.actors = self.actors
+        record.intro = self.description
+        record.region = self.area
+        record.pub_year = self.pub_year
+        record.pub_time = self.pub_time
+        record.total_episode_num = self.total_episode_num
+        record.newest_episode_num = self.newest_episode_num
+        record.siteid_pair_list = self.siteid_pair_list
+        record.season_num = self.season_num
+        record.total_season_num = self.season_num
+        record.ended = rawrecord.is_end
+        record.play_times = rawrecord.play_count
+        record.poster_md = rawrecord.cover_image_url_md5
+        return record
+
+    def merge(self, compare_record):
+        pass
+
+class AlbumRepositoryRecord(IRecord):
+    '''
+    知识库
+    '''
+    PRIMARY_KEY = 'id'
+    DB_TABLE = 'album_repository'
+    KEYS = ['id', 'title', 'show_title', 'alias', 'category', 'play_times', 'album_type','status',\
+           'album_language', 'directors', 'is_hd', 'actors', 'intro', 'region', 'pub_year', 'pub_time',\
+           'tag', 'poster_md', 'score', 'total_episode_num', 'newest_episode_num', 'manual_deleted', \
+           'siteid_pair_list', 'ended', 'manual_checked', 'manual_edited_fields', 'season_num', 'total_season_num', \
+            'version', 'insert_time', 'update_time']
+    def __init__(self):
+        super(self.__class__, self).__init__()
+        for key in  self.KEYS:
+            self.__setattr__(key, '')
+
+    def to_album_compare_record(self):
+        record = AlbumCompareRecord()
+        record.raw_record = self
+        record.id = self.id
+        record.title = self.title
+        record.alias = self.alias
+        record.season_num = self.season_num
+        record.album_language = self.album_language
+        record.version = self.version
+        record.category = self.category
+        record.album_type = self.album_type
+        record.directors = self.directors
+        record.actors = self.actors
+        record.intro = self.intro
+        record.site = 'repository'
+        record.total_episode_num = self.total_episode_num
+        record.newest_episode_num = self.newest_episode_num
+        record.region = self.region
+        record.pub_year = self.pub_year
+        record.pub_time = self.pub_time
+        record.siteid_pair_list = self.siteid_pair_list
+        return record
+
+    def merge_compare_record(self, compare_record):
+        self.siteid_pair_list = \
+                '|'.join(set([t for t in self.siteid_pair_list.split('|') + compare_record.siteid_pair_list.split('|') if t]))
+
+        for k in ['alias', 'directors', 'actors', 'album_type']:
+            #判断需要更新哪些字段
+            if k in self.manual_edited_fields:
+                continue
+            self.__dict__[k] = ';'.join(set([t for t in self.__dict__[k].split(';') + compare_record.__dict__[k].split(';') if t]))
+
+        for k in ['season_num', 'region', 'pub_year', 'play_times', 'album_language', 'version', 'intro', \
+                 'total_episode_num', 'newest_episode_num']:
+            if k not in self.manual_edited_fields and not self.__dict__[k]:
+                self.__dict__[k] = compare_record.__dict__[k]
+
+        #merge过后的repository_record需要重新生成compare_record?
+
+class AlbumRecord(IRecord):
+    '''
+    raw album
+    '''
+    PRIMARY_KEY = 'id'
+    DB_TABLE = 'raw_album'
+    KEYS = ['id', 'A1', 'A10', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'actors', \
+        'album_final_id', 'album_language', 'album_type', 'album_url', 'area', 'category', \
+        'change_signal', 'collection_count', 'comment_count', 'cover_image_download_status', \
+        'cover_image_md5', 'cover_image_url', 'cover_image_url1', 'cover_image_url1_download_status', \
+        'cover_image_url1_md5', 'description', 'directors', 'from_channel', 'hd', 'image_size', \
+        'insert_time', 'is_end', 'key_md5', 'key_md5_1', 'key_md5_2', 'last_chage_time', \
+        'last_update_time', 'manual_deleted', 'now_episode', 'other_title', 'play_count', 'pub_time', \
+        'pub_year', 'real_now_episode', 'scores', 'seasons_or_version', 'site', 'site_album_id', \
+        'status', 'tag', 'title', 'total_episode', 'update_level', 'update_time']
+    STATUS_NORMAL = 0
+    STATUS_UPDATE = 1
+    def __init__(self):
+        super(self.__class__, self).__init__()
+        for key in  self.KEYS:
+            self.__setattr__(key, '')
+
+    def get_sort_key(self):
+        '''
+        qiyi, youku, qq, sohu, tudou, fusion, pps, letv
+
+        '''
+        default = 100
+        dic = {u'qiyi':1, u'youku':2, u'qq':3, u'sohu':4, u'tudou':5, u'fusion':6, u'pps':7, u'letv':8}
+        return dic.get(self.site, default)
+    
+    def to_album_compare_record(self):
+        record = AlbumCompareRecord()
+        record.raw_record = self
+        record.id = self.id
+        record.title = self.title
+        record.alias = self.alias
+        #预处理分析出来的
+        ############
+        self.key_title = ''
+        self.sub_title = ''
+        self.season_num = ''
+        self.album_language = ''
+        self.version = ''
+        #############
+        record.category = self.from_channel
+        record.album_type = self.album_type
+        record.directors = self.directors
+        record.actors = self.actors
+        record.intro = self.description
+        record.site = self.site
+        record.total_episode_num = self.total_episode
+        record.newest_episode_num = self.real_now_episode if self.real_now_episode > self.now_episode else self.now_episode
+        record.region = self.area
+        try:
+            record.pub_year = int(self.pub_year)
+        except:
+            record.pub_year = 0
+        record.pub_time = self.pub_time
+        record.siteid_pair_list = '%s:%s' % (self.site, self.id)
+        return record
+    
+    def to_cluster_record(self):
+        record = ClusterRecord()
+        record.id = self.id
+        record.title = self.title
+        record.show_title = record.get_show_title(record)
+        record.sub_title = ''
+        record.english_title = ''
+        record.other_title = self.other_title
+        record.seasons_or_version = self.seasons_or_version
+        try:
+            record.pub_year = int(self.pub_year)
+        except:
+            record.pub_year = 0
+        record.pub_time = self.pub_time
+        record.area = self.area
+        record.cover_image_url = self.cover_image_url
+        record.cover_image_url_md5 = self.cover_image_md5
+        record.directors = self.directors.replace('&#183', '.')
+        record.actors = self.actors.replace('&#183', '.')
+        record.album_type = self.album_type
+        record.category = self.category
+        record.from_channel = self.from_channel
+        record.album_video_type_list = ''
+        record.album_image_url1 = self.cover_image_url1
+        record.album_image_url1_md5 = self.cover_image_url1_md5
+        record.album_image_url2 = ''
+        record.album_image_url2_md5 = ''
+        record.album_language = self.album_language
+        record.hd = self.hd
+        record.tag = self.tag
+        record.description = self.description
+        record.recommendation = ''
+        record.total_episode = self.total_episode
+        record.now_episode = self.now_episode
+        record.real_now_episode = self.real_now_episode
+        record.max_comment_count = self.comment_count
+        record.min_comment_count = self.comment_count
+        record.max_collection_count = self.collection_count
+        record.min_collection_count = self.collection_count
+        record.max_play_count = self.play_count
+        record.min_play_count = self.play_count
+        record.site_number = 1
+        record.site_list = self.site
+        record.key_site = self.site
+        record.editer_name = ''
+        record.editer_sign = 0
+        record.is_complete = 0
+        record.is_end = 0
+        record.is_update_required = 0
+        nowtime = int(time.time())
+        strtime = time.strftime('%F %T' , time.localtime(nowtime))
+        record.last_update_time = nowtime
+        record.last_chage_time = nowtime
+        record.insert_time = strtime
+        record.update_time = strtime
+        record.key_md5 = self.key_md5
+        record.key_md5_1 = ''
+        record.key_md5_2 =  ''
+        record.siteid_pair_list = '%s:%s' % (self.site, self.id)
+        record.status = record.STATUS_UPDATE
+        record.manual_deleted = 0
+        record.change_signal = 0
+        record.A1 = ''
+        record.A2 = ''
+        record.A3 = ''
+        record.A4 = ''
+        record.A5 = ''
+        record.A6 = ''
+        record.A7 = ''
+        record.A8 = ''
+        record.A9 = self.album_url
+        record.A10 = ''
+        normalize_record(record)
+        return record
+
+class ClusterRecord(IRecord):
+    '''
+    final album
+    '''
+    PRIMARY_KEY = 'id'
+    DB_TABLE = 'final_album'
+    KEYS = ['id', 'title', 'show_title', 'aliase', 'key_title', 'sub_title', 'english_title', 'other_title', \
+            'A1', 'A10', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'actors', \
+            'album_image_url1', 'album_image_url1_md5', 'album_image_url2', 'album_image_url2_md5',\
+             'album_image_url3', 'album_image_url3_md5', 'album_image_url4', 'album_image_url4_md5',\
+         'album_image_url5', 'album_image_url5_md5', 'album_language', 'album_type', \
+        'album_video_type_list', 'area', 'category', 'change_signal', 'cover_image_url', \
+        'cover_image_url_md5', 'description', 'directors', 'editer_name', 'editer_sign', \
+        'from_channel', 'hd', 'insert_time', 'is_complete', 'is_end', \
+        'is_update_required', 'key_md5', 'key_md5_1', 'key_md5_2', 'key_site', 'last_chage_time',\
+         'last_update_time', 'manual_deleted', 'auto_deleted', 'max_collection_count', 'max_comment_count', \
+        'max_play_count', 'min_collection_count', 'min_comment_count', 'min_play_count', \
+        'now_episode', 'pub_time', 'pub_year', 'real_now_episode', 'recommendation',\
+         'seasons_or_version', 'site_list', 'site_number', 'siteid_pair_list', 'status',\
+         'tag', 'total_episode', 'update_time']
+    STATUS_NORMAL = 0
+    STATUS_UPDATE = 1
+    def __init__(self):
+        super(self.__class__, self).__init__()
+        for key in  self.KEYS:
+            self.__setattr__(key, '')
+    
+    def to_album_repository_record(self):
+        #KEYS = ['id', 'title', 'show_title', 'alias', 'album_language', 'album_type',\
+        #   'album_language', 'directors', 'actors', 'intro', 'region', 'pub_year',\
+        #   'tag', 'poster_md', 'score', 'total_episode_num', 'newest_episode_num',\
+        #   'siteid_pair_list', 'ended', 'edit_type', 'edit_sign', 'insert_time']
+        record = AlbumRepositoryRecord()
+        record.id = self.id
+        record.title = self.title
+        record.show_title = self.show_title
+        record.alias = self.other_title
+        record.category = self.from_channel
+        record.album_type = self.album_type
+        record.album_language = self.album_language
+        record.directors = self.directors
+        record.actors = self.actors
+        record.intro = self.description
+        record.region = self.area
+        record.pub_year = self.pub_year
+        record.pub_time = self.pub_time
+        record.play_times = max(self.max_play_count, self.min_play_count)
+        record.is_hd = self.hd
+        record.tag = ''
+        record.poster_md = self.cover_image_url_md5
+        record.score = 0
+        record.total_episode_num = self.total_episode
+        record.newest_episode_num = max([self.now_episode, self.real_now_episode, 0])
+        record.siteid_pair_list = '|'.join(set([ siteid_pair for siteid_pair in self.siteid_pair_list.split('|') + self.manual_siteid_pair_list.split('|') if siteid_pair]))
+        record.ended = self.is_end
+        record.edit_type = 0
+        record.edit_sign = 0
+        record.status = 1
+        record.manual_deleted = self.manual_deleted
+        nowtime = int(time.time())
+        strtime = time.strftime('%F %T' , time.localtime(nowtime))
+        record.insert_time = strtime
+        record.update_time = strtime
+        return record
+
+    #AlbumRecord => ClusterRecord
+    def merge_cluster_record(self, record):
+        spl = list(set([siteid_pair for siteid_pair in record.siteid_pair_list.split(u'|') + self.siteid_pair_list.split('|') if siteid_pair]))
+        self.siteid_pair_list = '|'.join(spl) 
+        if not self.cover_image_url:
+            self.cover_image_url = record.cover_image_url
+            self.cover_image_url_md5 = record.cover_image_md5
+        if not self.album_language:
+            self.album_language = record.album_language
+        self.status = self.STATUS_UPDATE
+    
+    def get_show_title(self, record):
+        show_title = ''
+        language = record.album_language
+        if self.from_channel == 'zongyi':
+            if not self.show_title:
+                if record.album_language and record.album_language != u'国语':
+                    show_title = u'%s%s(%s)' % (record.key_title, record.seasons_or_version, record.album_language)
+                else:
+                    show_title = u'%s%s' % (self.key_title, self.seasons_or_version)
+            else:
+                show_title = self.show_title
+        else:
+            if len(self.show_title) < len(record.title):
+                show_title = record.title
+            else:
+                show_title = self.show_title
+            ##key_title + 之 + aliase + version + language
+            #if self.album_language and self.album_language != u'国语':
+            #   if self.aliase:
+            #       show_title = u'%s之%s(%s)' % (self.key_title, self.aliase, self.album_language)
+            #   else:
+            #       show_title = u'%s%s(%s)' % (self.key_title, self.seasons_or_version, self.album_language)
+            #else:
+            #   if self.aliase:
+            #       show_title = u'%s之%s%s' % (self.key_title, self.aliase, self.seasons_or_version)
+            #   else:
+            #       show_title = u'%s%s' % (self.key_title, self.seasons_or_version)
+        return show_title
+    
+    def discard_album_record(self, record):
+        siteid_pair = '%s:%s' % (record.site, record.id)
+        self.change_signal = 1
+        spl = list(set([t for t in self.siteid_pair_list.split('|') if t and t != siteid_pair]))
+        self.siteid_pair_list = '|'.join(spl)
+        if not self.siteid_pair_list:
+            self.auto_deleted = 1
+        else:
+            self.auto_deleted = 0
+
+    def merge_album_record(self, record):
+        normalize_record(record)
+        self.change_signal = 1
+        if not self.key_title:
+            self.key_title = record.key_title
+            #self.key_title = record.title[:len(record.key_title)]
+        #if record.other_title not in self.other_title:
+        #    self.other_title += ';' + record.other_title
+        self.show_title = self.get_show_title(record)
+        if not self.seasons_or_version:
+            self.seasons_or_version = record.seasons_or_version
+        if record.pub_time > self.pub_time:
+            self.pub_time = record.pub_time
+        if not self.cover_image_url:
+            self.cover_image_url = record.cover_image_url
+            self.cover_image_url_md5 = record.cover_image_md5
+        if not self.album_image_url1:
+            self.album_image_url1 = record.cover_image_url
+            self.album_image_url1_md5 = record.cover_image_md5
+        if len(self.actors) < len(record.actors):
+            self.actors = record.actors
+        if len(self.directors) < len(record.directors):
+            self.directors = record.directors
+        if not self.album_language:
+            self.album_language = record.album_language
+        if len(self.title) < len(record.title):
+            self.title = record.title
+        if not self.description:
+            self.description = record.description
+        if record.total_episode > self.total_episode:
+            self.total_episode = record.total_episode
+        if record.now_episode > self.now_episode:
+            self.now_episode = record.now_episode
+        if record.site not in self.site_list:
+            self.site_list += '|' + record.site
+
+        siteid_pair = '%s:%s' % (record.site, record.id)
+        spl = list(set([siteid_pair for siteid_pair in self.siteid_pair_list.split('|') + [siteid_pair] if siteid_pair]))
+        self.siteid_pair_list = '|'.join(spl)
+        #get rid of tudou_zongyi if self.siteid_pair_list 有其他站点的数据
+
+        #
+        #assert self.siteid_pair_list
+        #if self.from_channel == 'zongyi':
+        #    if 'tudou' in self.siteid_pair_list:
+        #        self.siteid_pair_list = siteid_pair
+        #        self.title = record.title
+        #    else:
+        #        if record.site != 'tudou' and siteid_pair not in self.siteid_pair_list:
+        #            self.siteid_pair_list += '|' + siteid_pair
+        #else:
+        #    if siteid_pair not in self.siteid_pair_list:
+        #        self.siteid_pair_list += '|' + siteid_pair
+        self.status = self.STATUS_UPDATE
+
+
+class VideoRecord(IRecord):
+    '''
+    单视频
+    '''
+    DB_TABLE = 'video_records'
+    PRIMARY_KEY = 'id'
+    KEYS = ['id', 'B1', 'B2', 'B3', 'B4', 'actors', 'album_final_id', 'change_signal', \
+        'collection_number', 'comment_number', 'complete_title', 'description', 'directors',\
+         'duration', 'episode_number', 'hd', 'image_download_status', 'image_md5', \
+        'image_size', 'image_url', 'insert_time', 'key_md5', 'key_md5_1', 'manual_deleted', \
+        'pub_time', 'raw_album_id', 'site', 'status', 'tag', 'title', 'update_time', 'url']
+    def __init__(self):
+        super(self.__class__, self).__init__()
+        for key in  self.KEYS:
+            self.__setattr__(key, '')
+
+class ClusterRelationRecord(IRecord):
+    '''
+    '''
+    DB_TABLE = 'checked_final_relation'
+    PRIMARY_KEY = 'key_id'
+    KEYS = ['relation', 'kid', 'pid', 'user', 'comment']
+    def __init__(self):
+        super(self.__class__, self).__init__()
+        for key in  self.KEYS:
+            self.__setattr__(key, '')
+
