@@ -129,8 +129,17 @@ def tcsegment(string):
 
 if __name__ == '__main__':
     tcinit()
-    for item in  tcsegment(sys.argv[1].decode('utf8')):
-        print item[0].encode('utf8'), item[1], item[4]
+    for line in open(sys.argv[1]):
+        items = line.decode('utf8').strip().split('\t')
+        if len(items) < 2:
+            continue
+        k, v = items[:2]
+        words = []
+        for item in  tcsegment(k):
+            words.append(item[0])
+            #print item[0].encode('utf8', 'ignore')
+        info = '%s\t%d\t%s\t%s' % (k, len(words), v, '/'.join(words))
+        print info.encode('utf8')
     tcuninit()
 
 
